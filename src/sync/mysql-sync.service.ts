@@ -193,7 +193,7 @@ export class MysqlSyncService implements OnModuleInit, OnModuleDestroy {
   /**
    * Método público para forçar uma sincronização manual
    */
-  async forceSyncNow(): Promise<{ synced: number }> {
+  async forceSyncNow(): Promise<{ synced: number; deleted: number }> {
     this.logger.log('Manual sync triggered');
     
     const connection = await this.mysqlPool.getConnection();
@@ -202,16 +202,30 @@ export class MysqlSyncService implements OnModuleInit, OnModuleDestroy {
         'SELECT id, name, email, createdAt, updatedAt FROM persons'
       );
 
+      // Upsert all persons from MySQL
       let syncedCount = 0;
+      const mysqlIds = new Set<string>();
       for (const row of rows) {
         await this.upsertPersonToMongo(row);
+        mysqlIds.add(row.id);
         syncedCount++;
       }
 
-      this.logger.log(`✅ Manual sync completed: ${syncedCount} persons synced`);
+      // Remove persons from MongoDB that no longer exist in MySQL
+      const mongoPersons = await this.personMongoModel.find({}, { id: 1 }).lean();
+      let deletedCount = 0;
+      for (const mongoPerson of mongoPersons) {
+        if (!mysqlIds.has(mongoPerson.id)) {
+          await this.personMongoModel.deleteOne({ id: mongoPerson.id });
+          this.logger.log(`🗑️ Removed person ${mongoPerson.id} from MongoDB (not in MySQL)`);
+          deletedCount++;
+        }
+      }
+
+      this.logger.log(`✅ Manual sync completed: ${syncedCount} synced, ${deletedCount} deleted`);
       this.lastSyncTime = new Date();
       
-      return { synced: syncedCount };
+      return { synced: syncedCount, deleted: deletedCount };
     } finally {
       connection.release();
     }
