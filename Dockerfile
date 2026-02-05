@@ -7,8 +7,12 @@ COPY package*.json ./
 COPY tsconfig.json ./
 COPY nest-cli.json ./
 
-# Install dependencies
-RUN npm install
+# Configure npm with longer timeout and retry
+RUN npm config set fetch-timeout 120000 && \
+    npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    (npm install || npm install || npm install)
 
 # Copy source code
 COPY src ./src
